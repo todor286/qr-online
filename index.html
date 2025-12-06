@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QR Отчитане</title>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+
+<style>
+body{font-family:Arial;margin:0;padding:10px;background:#f5f5f5}
+.card{background:#fff;padding:10px;border-radius:8px;margin-bottom:10px}
+input,button{width:100%;padding:10px;margin-top:6px;font-size:16px}
+button{background:#1976d2;color:white;border:none;border-radius:6px}
+table{width:100%;border-collapse:collapse}
+td,th{border-bottom:1px solid #ddd;padding:5px}
+</style>
+</head>
+<body>
+
+<h2>QR Отчитане</h2>
+
+<div class="card">
+<button onclick="startScan()">📷 СКАНИРАЙ QR</button>
+<div id="cam"></div>
+
+<input id="project" placeholder="Проект" readonly>
+<input id="qty" type="number" placeholder="Количество">
+<input id="time" type="number" placeholder="Време (минути)">
+<button onclick="send()">Запази</button>
+</div>
+
+<div class="card">
+<h3>Последни отчети</h3>
+<div id="list"></div>
+</div>
+
+<script>
+let stream;
+
+function startScan(){
+  navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}})
+  .then(s=>{
+    stream=s;
+    const v=document.createElement("video");
+    v.srcObject=s;v.autoplay=true;v.playsInline=true;
+    cam.innerHTML='';cam.appendChild(v);
+
+    const c=document.createElement("canvas");
+    const ctx=c.getContext("2d");
+
+    function scan(){
+      if(v.readyState===v.HAVE_ENOUGH_DATA){
+        c.width=v.videoWidth;
+        c.height=v.videoHeight;
+        ctx.drawImage(v,0,0);
+        const img=ctx.getImageData(0,0,c.width,c.height);
+        const code=jsQR(img.data,c.width,c.height);
+        if(code){
+          project.value=code.data;
+          stop();
+          return;
+        }
+      }
+      requestAnimationFrame(scan);
+    }
+    scan();
+  });
+}
+
+function stop(){
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  cam.innerHTML='';
+}
+
+function send(){
+  fetch("/save",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      project:project.value,
+      qty:qty.value,
+      time:time.value
+    })
+  }).then(()=>load());
+}
+
+function load(){
+  fetch("/data")
+  .then(r=>r.json())
+  .then(d=>{
+    let h="<table><tr><th>Дата</th><th>Проект</th><th>К-во</th><th>Време</th></tr>";
+    d.forEach(x=>{
+      h+=`<tr><td>${x.date}</td><td>${x.project}</td><td>${x.qty}</td><td>${x.time}</td></tr>`;
+    });
+    h+="</table>";
+    list.innerHTML=h;
+  });
+}
+load();
+</script>
+
+</body>
+</html>
