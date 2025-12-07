@@ -5,12 +5,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// --------- ДАННИ В ПАМЕТТА ----------
+// ===== ПАМЕТ =====
 let projects = [];
 let users = [];
 let records = [];
 
-// --------- ПРОЕКТИ ----------
+// ===== ПРОЕКТИ =====
 app.get("/projects", (req, res) => {
   res.json(projects);
 });
@@ -20,7 +20,7 @@ app.post("/projects", (req, res) => {
   res.json({ ok: true });
 });
 
-// --------- ПОТРЕБИТЕЛИ ----------
+// ===== ПОТРЕБИТЕЛИ =====
 app.get("/users", (req, res) => {
   res.json(users);
 });
@@ -30,7 +30,7 @@ app.post("/users", (req, res) => {
   res.json({ ok: true });
 });
 
-// --------- ОТЧЕТИ ----------
+// ===== ОТЧЕТИ =====
 app.get("/records", (req, res) => {
   res.json(records);
 });
@@ -40,12 +40,12 @@ app.post("/records", (req, res) => {
   res.json({ saved: true });
 });
 
-// --------- СТАТИЧЕН САЙТ ----------
+// ===== САЙТ =====
 app.use(express.static("public"));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () =>
-  console.log("Server started on port " + PORT)
-);
-remove auth completely
+app.listen(PORT, () => {
+  console.log("SERVER STARTED ON PORT " + PORT);
+});
+
 
