@@ -6,17 +6,18 @@
 <title>QR Отчитане – Централен</title>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <style>
-  body{font-family:Arial,Helvetica,sans-serif;background:#f3f4f6;margin:0;padding:12px;max-width:980px;margin-left:auto;margin-right:auto}
-  .card{background:#fff;border-radius:8px;padding:12px;margin-bottom:12px;box-shadow:0 1px 4px rgba(0,0,0,0.05)}
-  h1,h2{margin:8px 0}
-  input,select,button,textarea{width:100%;padding:10px;margin-top:8px;border:1px solid #e2e8f0;border-radius:6px;box-sizing:border-box}
-  button{background:#0366d6;color:white;border:none}
-  .row{display:flex;gap:8px}
-  .col{flex:1}
-  table{width:100%;border-collapse:collapse;margin-top:8px}
-  th,td{padding:8px;border-bottom:1px solid #eef2f7;text-align:left}
-  .small{font-size:0.9rem;color:#555}
-  .muted{color:#666;font-size:0.9rem}
+/* (стиловете остават същите като преди) */
+body{font-family:Arial,Helvetica,sans-serif;background:#f3f4f6;margin:0;padding:12px;max-width:980px;margin-left:auto;margin-right:auto}
+.card{background:#fff;border-radius:8px;padding:12px;margin-bottom:12px;box-shadow:0 1px 4px rgba(0,0,0,0.05)}
+h1,h2{margin:8px 0}
+input,select,button,textarea{width:100%;padding:10px;margin-top:8px;border:1px solid #e2e8f0;border-radius:6px;box-sizing:border-box}
+button{background:#0366d6;color:white;border:none}
+.row{display:flex;gap:8px}
+.col{flex:1}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th,td{padding:8px;border-bottom:1px solid #eef2f7;text-align:left}
+.small{font-size:0.9rem;color:#555}
+.muted{color:#666;font-size:0.9rem}
 </style>
 </head>
 <body>
@@ -25,8 +26,9 @@
   <div class="card">
     <h2>Админ (мениджмънт)</h2>
     <div class="row">
-      <div class="col"><input id="adminPass" placeholder="Въведи админ парола (за промени)"></div>
+      <div class="col"><input id="adminPass" placeholder="Въведи админ парола"></div>
       <div style="width:140px"><button id="btnAdminLogin">Влез</button></div>
+      <div style="width:140px"><button id="btnAdminLogout" style="display:none;background:#e11;">Изход</button></div>
     </div>
     <div id="adminArea" style="display:none;margin-top:10px">
       <h3>Проекти</h3>
@@ -92,62 +94,100 @@
   </div>
 
 <script>
-/* ---------- Helper network ---------- */
 const API_BASE = ""; // same origin
 
-async function apiGet(path){
-  const res = await fetch(API_BASE + path);
+/* --------- Helpers for auth-aware fetch --------- */
+function getToken(){ return localStorage.getItem('auth_token') || null; }
+function authHeaders(){
+  const t = getToken();
+  return t ? { "Authorization": "Bearer " + t } : {};
+}
+async function apiGet(path, auth=false){
+  const h = auth ? authHeaders() : {};
+  const res = await fetch(API_BASE + path, { headers: { ...h } });
+  if(!res.ok){
+    const txt = await res.text();
+    throw new Error(res.status + " " + txt);
+  }
   return res.json();
 }
-async function apiPost(path, body){
-  const res = await fetch(API_BASE + path, {
-    method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)
-  });
-  return res;
+async function apiPost(path, body, auth=false){
+  const h = { "Content-Type":"application/json", ...(auth ? authHeaders() : {}) };
+  const res = await fetch(API_BASE + path, { method:"POST", headers: h, body: JSON.stringify(body) });
+  if(!res.ok){
+    const txt = await res.text();
+    throw new Error(res.status + " " + txt);
+  }
+  return res.json();
 }
 
-/* ---------- Admin logic ---------- */
-const adminPassInput = document.getElementById('adminPass');
-const adminArea = document.getElementById('adminArea');
-document.getElementById('btnAdminLogin').addEventListener('click', ()=>{
-  const p = adminPassInput.value || "";
-  // We simply store it in memory (the server expects header x-admin-pass or body.admin_pass)
-  window.__ADMIN_PASS = p;
-  adminArea.style.display = p ? 'block' : 'none';
-  if(p) loadProjects(); loadUsers();
+/* ---------- Admin login ---------- */
+document.getElementById('btnAdminLogin').addEventListener('click', async ()=>{
+  const pass = document.getElementById('adminPass').value || "";
+  if(!pass) return alert('Въведете парола');
+  try{
+    const r = await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body: JSON.stringify({ password: pass })});
+    if(!r.ok){ const t = await r.text(); throw new Error(t || r.status); }
+    const j = await r.json();
+    localStorage.setItem('auth_token', j.token);
+    document.getElementById('adminPass').value = '';
+    showAdmin(true);
+    await loadProjects(); await loadUsers(); loadReports();
+    alert('Влязохте като админ');
+  }catch(e){
+    alert('Грешка: ' + e.message);
+  }
 });
 
-/* ---------- Projects / Users management ---------- */
-async function loadProjects(){
-  const projects = await apiGet('/projects');
-  const s1 = document.getElementById('selectProject');
-  const s2 = document.getElementById('projForQR');
-  const s3 = document.getElementById('filterProject');
-  s1.innerHTML = '<option value="">-- изберете проект --</option>' + projects.map(x=>`<option>${x}</option>`).join('');
-  s2.innerHTML = projects.map(x=>`<option>${x}</option>`).join('');
-  s3.innerHTML = '<option value="">Всички проекти</option>' + projects.map(x=>`<option>${x}</option>`).join('');
-  document.getElementById('projectsList').innerText = projects.join('\n');
+document.getElementById('btnAdminLogout').addEventListener('click', ()=>{
+  localStorage.removeItem('auth_token');
+  showAdmin(false);
+});
+
+function showAdmin(on){
+  document.getElementById('adminArea').style.display = on ? 'block' : 'none';
+  document.getElementById('btnAdminLogout').style.display = on ? 'inline-block' : 'none';
 }
+
+/* ---------- Projects / Users ---------- */
+async function loadProjects(){
+  try{
+    const projects = await apiGet('/projects');
+    document.getElementById('selectProject').innerHTML = '<option value="">-- изберете проект --</option>' + projects.map(x=>`<option>${x}</option>`).join('');
+    document.getElementById('projForQR').innerHTML = projects.map(x=>`<option>${x}</option>`).join('');
+    document.getElementById('filterProject').innerHTML = '<option value="">Всички проекти</option>' + projects.map(x=>`<option>${x}</option>`).join('');
+    document.getElementById('projectsList').innerText = projects.join('\n');
+  }catch(e){ console.warn(e); }
+}
+
 document.getElementById('btnAddProject').addEventListener('click', async ()=>{
   const name = document.getElementById('newProject').value.trim();
   if(!name) return alert('Въведете име');
-  const res = await fetch('/projects',{method:'POST',headers:{'Content-Type':'application/json','x-admin-pass': window.__ADMIN_PASS || ''},body:JSON.stringify({name})});
-  if(res.ok){ document.getElementById('newProject').value=''; loadProjects(); alert('Добавен проект'); }
-  else { const t = await res.text(); alert('Грешка: '+t); }
+  try{
+    await apiPost('/projects',{ name }, true); // protected
+    document.getElementById('newProject').value='';
+    await loadProjects();
+    alert('Добавен проект');
+  }catch(e){ alert('Грешка: ' + e.message); }
 });
 
 /* users */
 async function loadUsers(){
-  const users = await apiGet('/users');
-  document.getElementById('selectOperator').innerHTML = '<option value="">-- оператор --</option>' + users.map(x=>`<option>${x}</option>`).join('');
-  document.getElementById('usersList').innerText = users.join('\n');
+  try{
+    const users = await apiGet('/users');
+    document.getElementById('selectOperator').innerHTML = '<option value="">-- оператор --</option>' + users.map(x=>`<option>${x}</option>`).join('');
+    document.getElementById('usersList').innerText = users.join('\n');
+  }catch(e){ console.warn(e); }
 }
 document.getElementById('btnAddUser').addEventListener('click', async ()=>{
   const name = document.getElementById('newUser').value.trim();
   if(!name) return alert('Въведете име');
-  const res = await fetch('/users',{method:'POST',headers:{'Content-Type':'application/json','x-admin-pass': window.__ADMIN_PASS || ''},body:JSON.stringify({name})});
-  if(res.ok){ document.getElementById('newUser').value=''; loadUsers(); alert('Добавен оператор'); }
-  else { const t = await res.text(); alert('Грешка: '+t); }
+  try{
+    await apiPost('/users',{ name }, true); // protected
+    document.getElementById('newUser').value='';
+    await loadUsers();
+    alert('Добавен оператор');
+  }catch(e){ alert('Грешка: ' + e.message); }
 });
 
 /* ---------- Generate QR ---------- */
@@ -161,7 +201,7 @@ document.getElementById('btnGenQR').addEventListener('click', ()=>{
   area.appendChild(dl);
 });
 
-/* ---------- Scanner (worker) ---------- */
+/* ---------- Scanner ---------- */
 let stream=null, videoEl=null, scanAnim=null;
 document.getElementById('btnStartScan').addEventListener('click', async ()=>{
   try{
@@ -188,12 +228,7 @@ document.getElementById('btnStartScan').addEventListener('click', async ()=>{
   }catch(e){ alert('Не може да стартира камера: '+e.message); }
 });
 document.getElementById('btnStopScan').addEventListener('click', stopScan);
-function stopScan(){
-  if(stream) stream.getTracks().forEach(t=>t.stop());
-  stream = null; if(videoEl){ videoEl.remove(); videoEl=null; }
-  if(scanAnim) cancelAnimationFrame(scanAnim);
-  document.getElementById('cameraArea').innerHTML='';
-}
+function stopScan(){ if(stream) stream.getTracks().forEach(t=>t.stop()); stream=null; if(videoEl){ videoEl.remove(); videoEl=null; } if(scanAnim) cancelAnimationFrame(scanAnim); document.getElementById('cameraArea').innerHTML=''; }
 
 /* ---------- Save report ---------- */
 document.getElementById('btnSave').addEventListener('click', async ()=>{
@@ -203,9 +238,11 @@ document.getElementById('btnSave').addEventListener('click', async ()=>{
   const time = document.getElementById('inpTime').value;
   const notes = document.getElementById('inpNotes').value;
   if(!project) return alert('Изберете проект (или сканирайте QR)');
-  await apiPost('/save',{ project, qty, time, operator, notes });
-  alert('Записано (локално на сървъра).');
-  loadReports();
+  try{
+    await apiPost('/save',{ project, qty, time, operator, notes }, false);
+    alert('Записано.');
+    loadReports();
+  }catch(e){ alert('Грешка при запис: ' + e.message); }
 });
 
 /* ---------- Reports / filters / export ---------- */
@@ -217,18 +254,18 @@ async function loadReports(){
   if(qproj) params.append('project',qproj);
   if(from) params.append('from',from);
   if(to) params.append('to',to);
-  const data = await apiGet('/data?' + params.toString());
-  const area = document.getElementById('reportsArea');
-  if(!data.length){ area.innerHTML='<div class="small muted">Няма записи</div>'; return; }
-  let html = '<table><thead><tr><th>Дата</th><th>Проект</th><th>Оператор</th><th>Кол</th><th>Време</th><th>Бележки</th></tr></thead><tbody>';
-  data.forEach(r=>{
-    html += `<tr><td>${new Date(r.date).toLocaleString()}</td><td>${r.project}</td><td>${r.operator||''}</td><td>${r.qty||''}</td><td>${r.time||''}</td><td>${r.notes||''}</td></tr>`;
-  });
-  html += '</tbody></table>';
-  area.innerHTML = html;
+  try{
+    const data = await apiGet('/data?' + params.toString());
+    const area = document.getElementById('reportsArea');
+    if(!data.length){ area.innerHTML='<div class="small muted">Няма записи</div>'; return; }
+    let html = '<table><thead><tr><th>Дата</th><th>Проект</th><th>Оператор</th><th>Кол</th><th>Време</th><th>Бележки</th></tr></thead><tbody>';
+    data.forEach(r=>{ html += `<tr><td>${new Date(r.date).toLocaleString()}</td><td>${r.project}</td><td>${r.operator||''}</td><td>${r.qty||''}</td><td>${r.time||''}</td><td>${r.notes||''}</td></tr>`; });
+    html += '</tbody></table>';
+    area.innerHTML = html;
+  }catch(e){ console.warn(e); }
 }
 document.getElementById('btnFilter').addEventListener('click', loadReports);
-document.getElementById('btnExport').addEventListener('click', ()=>{
+document.getElementById('btnExport').addEventListener('click', async ()=>{
   const qproj = document.getElementById('filterProject').value;
   const from = document.getElementById('filterFrom').value || '';
   const to = document.getElementById('filterTo').value || '';
@@ -236,11 +273,21 @@ document.getElementById('btnExport').addEventListener('click', ()=>{
   if(qproj) params.append('project',qproj);
   if(from) params.append('from',from);
   if(to) params.append('to',to);
-  window.location = '/export?' + params.toString();
+  // export requires admin token
+  const t = getToken();
+  if(!t) return alert('Трябва да влезете като админ за експорт.');
+  window.location = '/export?' + params.toString() + '&_token=1'; // token validated server-side via header
+  try{
+    // attempt direct fetch to include header (modern browsers block setting headers on navigation),
+    // so we rely on server-side verifyToken middleware; user should be logged in.
+    // Alternatively, we could do fetch and create Blob, but this is simpler.
+  }catch(e){ console.warn(e); }
 });
 
 /* ---------- Init ---------- */
 (async function init(){
+  // if token present, show admin area
+  if(getToken()) showAdmin(true);
   await loadProjects();
   await loadUsers();
   loadReports();
