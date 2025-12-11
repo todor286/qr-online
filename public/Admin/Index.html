@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin — QR Отчитане</title>
+<style>
+  body{font-family:Arial;margin:0;padding:12px;background:#f4f6f8}
+  .wrap{max-width:1100px;margin:0 auto}
+  .card{background:#fff;padding:12px;border-radius:8px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
+  input,select,button,textarea{width:100%;padding:10px;margin-top:8px;border:1px solid #e6eef6;border-radius:6px;box-sizing:border-box}
+  button{background:#0b69ff;color:white;border:none;padding:10px;border-radius:6px}
+  .row{display:flex;gap:8px}
+  .col{flex:1}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:8px;border-bottom:1px solid #eee;text-align:left}
+  .small{font-size:0.9rem;color:#666}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Admin — QR Отчитане</h1>
+
+  <div class="card" id="loginCard">
+    <h3>Вход (админ)</h3>
+    <input id="adminPassword" type="password" placeholder="Въведи админ парола">
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button id="btnLogin">Влез</button>
+      <button id="btnLogout" style="display:none;background:#e11">Изход</button>
+    </div>
+    <div id="loginMsg" class="small"></div>
+  </div>
+
+  <div id="adminArea" style="display:none">
+    <div class="card">
+      <h3>Добави проект</h3>
+      <div class="row">
+        <input id="projName" placeholder="Име на проект">
+        <div style="width:150px"><button id="addProj">Добави</button></div>
+      </div>
+      <div id="projList" class="small"></div>
+    </div>
+
+    <div class="card">
+      <h3>Добави оператор</h3>
+      <div class="row">
+        <input id="userName" placeholder="Име на оператор">
+        <div style="width:150px"><button id="addUser">Добави</button></div>
+      </div>
+      <div id="userList" class="small"></div>
+    </div>
+
+    <div class="card">
+      <h3>Генерирай QR за проект</h3>
+      <div class="row">
+        <select id="qrProject"></select>
+        <div style="width:150px"><button id="genQR">Генерирай</button></div>
+      </div>
+      <div id="qrArea" style="margin-top:8px"></div>
+    </div>
+
+    <div class="card">
+      <h3>Отчети</h3>
+      <div class="row">
+        <select id="filterProj"><option value="">Всички проекти</option></select>
+        <div style="width:180px"><input id="fromDate" placeholder="От (ISO yyyy-mm-dd)"></div>
+        <div style="width:180px"><input id="toDate" placeholder="До (ISO yyyy-mm-dd)"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <div style="flex:1"><button id="btnLoad">Обнови</button></div>
+        <div style="width:220px"><button id="btnExportCSV">Експорт CSV</button></div>
+      </div>
+      <div id="reportsArea" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const api = (path, opts={}) => fetch(path, opts).then(async r => {
+  if(!r.ok){ const t = await r.text(); throw new Error(t||r.status); }
+  return r.headers.get('content-type') && r.headers.get('content-type').includes('application/json') ? r.json() : r;
+});
+
+function getToken(){ return localStorage.getItem('auth_token') || null; }
+function authHeader(){ const t=getToken(); return t? { "Authorization":"Bearer "+t } : {}; }
+
+document.getElementById('btnLogin').addEventListener('click', async ()=>{
+  try{
+    const pass = document.getElementById('adminPassword').value;
+    if(!pass) return alert('Въведи парола');
+    const res = await api('/login', { method:'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ password: pass }) });
+    localStorage.setItem('auth_token', res.token);
+    document.getElementById('adminPassword').value='';
+    showAdmin(true);
+    await loadLists();
+    alert('Успешен вход');
+  }catch(e){ alert('Login error: ' + e.message); }
+});
+
+document.getElementById('btnLogout').addEventListener('click', ()=>{
+  localStorage.removeItem('auth_token');
+  showAdmin(false);
+});
+
+function showAdmin(on){
+  document.getElementById('loginCard').style.display = on ? 'none' : 'block';
+  document.getElementById('adminArea').style.display = on ? 'block' : 'none';
+  document.getElementById('btnLogout').style.display = on ? 'inline-block' : 'none';
+}
+
+async function loadLists(){
+  try{
+    const projs = await api('/projects');
+    document.getElementById('projList').innerText = projs.join('\n');
+    document.getElementById('qrProject').innerHTML = projs.map(p=>`<option>${p}</option>`).join('');
+    document.getElementById('filterProj').innerHTML = '<option value="">Всички проекти</option>' + projs.map(p=>`<option>${p}</option>`).join('');
+    const us = await api('/users');
+    document.getElementById('userList').innerText = us.join('\n');
+  }catch(e){ console.warn(e); }
+}
+
+document.getElementById('addProj').addEventListener('click', async ()=>{
+  const name = document.getElementById('projName').value.trim(); if(!name) return alert('Име');
+  try{
+    await api('/projects', { method:'POST', headers: {'Content-Type':'application/json', ...authHeader()}, body: JSON.stringify({ name }) });
+    document.getElementById('projName').value='';
+    await loadLists();
+    alert('Добавен проект');
+  }catch(e){ alert('Err: ' + e.message); }
+});
+
+document.getElementById('addUser').addEventListener('click', async ()=>{
+  const name = document.getElementById('userName').value.trim(); if(!name) return alert('Име');
+  try{
+    await api('/users', { method:'POST', headers: {'Content-Type':'application/json', ...authHeader()}, body: JSON.stringify({ name }) });
+    document.getElementById('userName').value='';
+    await loadLists();
+    alert('Добавен оператор');
+  }catch(e){ alert('Err: ' + e.message); }
+});
+
+document.getElementById('genQR').addEventListener('click', ()=>{
+  const val = document.getElementById('qrProject').value; if(!val) return alert('Избери проект');
+  const url = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(val);
+  const img = document.createElement('img'); img.src=url; img.style.maxWidth='220px';
+  const dl = document.createElement('a'); dl.href=url; dl.download=`QR-${val}.png`; dl.textContent='Свали PNG'; dl.style.marginLeft='8px';
+  const area = document.getElementById('qrArea'); area.innerHTML=''; area.appendChild(img); area.appendChild(dl);
+});
+
+document.getElementById('btnLoad').addEventListener('click', loadReports);
+async function loadReports(){
+  try{
+    const p = document.getElementById('filterProj').value;
+    const from = document.getElementById('fromDate').value;
+    const to = document.getElementById('toDate').value;
+    const qs = new URLSearchParams();
+    if(p) qs.set('project', p);
+    if(from) qs.set('from', from);
+    if(to) qs.set('to', to);
+    const data = await api('/data?' + qs.toString());
+    const area = document.getElementById('reportsArea');
+    if(!data.length) return area.innerHTML = '<div class="small">Няма записи</div>';
+    let html = '<table><thead><tr><th>Дата</th><th>Проект</th><th>Оператор</th><th>Кол</th><th>Време</th><th>Бележки</th></tr></thead><tbody>';
+    data.forEach(r => {
+      html += `<tr><td>${new Date(r.date).toLocaleString()}</td><td>${r.project}</td><td>${r.operator||''}</td><td>${r.qty||''}</td><td>${r.time||''}</td><td>${r.notes||''}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    area.innerHTML = html;
+  }catch(e){ alert('Грешка при зареждане: ' + e.message); }
+}
+
+document.getElementById('btnExportCSV').addEventListener('click', async ()=>{
+  try{
+    const token = localStorage.getItem('auth_token');
+    if(!token) return alert('Влезте като админ за експортиране');
+    const p = document.getElementById('filterProj').value;
+    const from = document.getElementById('fromDate').value;
+    const to = document.getElementById('toDate').value;
+    const qs = new URLSearchParams();
+    if(p) qs.set('project', p);
+    if(from) qs.set('from', from);
+    if(to) qs.set('to', to);
+    const res = await fetch('/export?' + qs.toString(), { headers: { 'Authorization': 'Bearer ' + token } });
+    if(!res.ok){ const t = await res.text(); throw new Error(t||res.status); }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'reports.csv'; a.click();
+    URL.revokeObjectURL(url);
+  }catch(e){ alert('Export error: ' + e.message); }
+});
+
+// init: if token present, show admin
+(function(){
+  if(localStorage.getItem('auth_token')){ showAdmin(true); loadLists(); }
+})();
+</script>
+</body>
+</html>
